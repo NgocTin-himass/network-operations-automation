@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# SSH credentials
+*.pem
+*.key
+id_rsa
+id_ed25519
+network_automation_ed25519*
+
+# Runtime databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Logs and runtime data
+logs/*
+!logs/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/output/*
+!data/output/.gitkeep
+
+# Backups
+*.bak
+*.backup
+
+# Misc
+*.lock
+
+# Editor backup files
+*.save

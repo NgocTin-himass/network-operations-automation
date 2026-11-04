@@ -1,0 +1,30 @@
+devices:
+  - id: ubuntu-local
+    hostname: Ubuntu-Local
+    ip: 127.0.0.1
+    platform: linux
+    device_type: linux
+    enabled: true
+    collectors:
+      - ping
+      - ssh
+
+  - id: router-01
+    hostname: Router-01
+    ip: 192.0.2.10
+    platform: cisco
+    device_type: cisco_ios
+    enabled: true
+    collectors:
+      - ping
+      - ssh
+
+  - id: switch-01
+    hostname: Switch-01
+    ip: 192.0.2.20
+    platform: cisco
+    device_type: cisco_ios
+    enabled: true
+    collectors:
+      - ping
+      - ssh

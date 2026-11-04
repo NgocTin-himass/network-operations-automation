@@ -1,0 +1,38 @@
+monitoring:
+  interval_seconds: 300
+  max_workers: 5
+  timeout_seconds: 5
+
+ping:
+  count: 5
+  timeout_seconds: 1
+  warning_latency_ms: 100
+  critical_latency_ms: 300
+  warning_packet_loss_percent: 20
+  critical_packet_loss_percent: 100
+
+resources:
+  cpu_warning_percent: 70
+  cpu_critical_percent: 90
+  memory_warning_percent: 80
+  memory_critical_percent: 95
+
+ssh:
+  port: 22
+  timeout_seconds: 8
+
+api:
+  timeout_seconds: 5
+
+interfaces:
+  down_severity: CRITICAL
+
+alerts:
+  notify_on_recovery: true
+  deduplicate: true
+
+  webhook_enabled: false
+  webhook_timeout_seconds: 5
+
+  discord_enabled: false
+  discord_timeout_seconds: 10
