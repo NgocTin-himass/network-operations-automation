@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS agent_outbox (
     attempt_count INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TEXT NOT NULL,
     locked_until TEXT,
+    claim_token TEXT,
     created_at TEXT NOT NULL,
     delivered_at TEXT,
     last_error TEXT,
@@ -221,6 +222,9 @@ def migrate_schema(connection):
     created by SCHEMA using CREATE TABLE/INDEX IF NOT EXISTS.
     """
     migrations = {
+        "agent_outbox": {
+            "claim_token": "TEXT",
+        },
         "active_alerts": {
             "observed_value": "TEXT",
             "threshold": "TEXT",
