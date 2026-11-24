@@ -37,6 +37,7 @@ from reports.report_generator import generate_reports
 
 from storage.state_tracker import process_monitoring_run
 from storage.database import get_connection
+from incidents.manager import synchronize_incidents
 
 from logging_config import setup_logging
 
@@ -423,7 +424,25 @@ def run_monitoring():
             state_result["alert_event_count"],
         )
 
-        # 8. Alert summary
+        # 8. Project alert lifecycle events into Incidents and the Outbox.
+        # Monitoring data is already committed; if reconciliation fails,
+        # the next monitoring run can process the unprojected alert_events.
+        try:
+            incident_result = synchronize_incidents(db_path=db_path)
+            logger.info(
+                "Incident sync: processed=%s created=%s updated=%s resolved=%s outbox=%s",
+                incident_result["processed_alert_events"],
+                incident_result["incidents_created"],
+                incident_result["incidents_updated"],
+                incident_result["incidents_resolved"],
+                incident_result["outbox_events_created"],
+            )
+        except Exception:
+            logger.exception(
+                "Incident synchronization failed; will retry on a later run"
+            )
+
+        # 9. Alert summary
         alert_summary = build_alert_summary(
             health_results,
             deduplicate=settings.get(
@@ -433,7 +452,7 @@ def run_monitoring():
 
         print_alert_summary(alert_summary)
 
-        # 9. Report generation
+        # 10. Report generation
         report_files = generate_reports(
             health_results=health_results,
             alert_summary=alert_summary,
@@ -452,7 +471,7 @@ def run_monitoring():
             report_files["csv_path"],
         )
 
-        # 10. Optional webhook
+        # 11. Optional webhook
         notify_new_alerts(
             run_id=state_result["run_id"],
             db_path=db_path,
