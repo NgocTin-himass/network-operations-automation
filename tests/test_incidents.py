@@ -21,8 +21,11 @@ def insert_alert_event(
     event_type="RAISED",
     severity="CRITICAL",
     message="CPU usage reached critical threshold",
-    created_at="2026-11-24T10:00:00+00:00",
+    created_at=None,
 ):
+    if created_at is None:
+        created_at = datetime.now(timezone.utc).isoformat()
+
     with get_connection(db_path) as connection:
         run_cursor = connection.execute(
             "INSERT INTO monitoring_runs (checked_at) VALUES (?)",
