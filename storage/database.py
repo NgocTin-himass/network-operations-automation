@@ -4,31 +4,20 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-# =====================================================
-# DATABASE CONFIGURATION
-# =====================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-DEFAULT_DB_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "network_monitoring.db"
-)
+DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "network_monitoring.db"
 
 
 # =====================================================
-# DATABASE SCHEMA
+# TABLE SCHEMA
 # =====================================================
 
 SCHEMA = """
--- 1. Monitoring Runs
 CREATE TABLE IF NOT EXISTS monitoring_runs (
     run_id INTEGER PRIMARY KEY AUTOINCREMENT,
     checked_at TEXT NOT NULL
 );
 
--- 2. Current Device State
 CREATE TABLE IF NOT EXISTS device_current_state (
     device_id TEXT PRIMARY KEY,
     hostname TEXT,
@@ -39,7 +28,6 @@ CREATE TABLE IF NOT EXISTS device_current_state (
     last_checked_at TEXT NOT NULL
 );
 
--- 3. Device State History
 CREATE TABLE IF NOT EXISTS device_state_history (
     history_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -51,7 +39,6 @@ CREATE TABLE IF NOT EXISTS device_state_history (
     FOREIGN KEY (run_id) REFERENCES monitoring_runs(run_id)
 );
 
--- 4. State Events
 CREATE TABLE IF NOT EXISTS state_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -64,7 +51,6 @@ CREATE TABLE IF NOT EXISTS state_events (
     FOREIGN KEY (run_id) REFERENCES monitoring_runs(run_id)
 );
 
--- 5. Active Alerts
 CREATE TABLE IF NOT EXISTS active_alerts (
     alert_key TEXT PRIMARY KEY,
     device_id TEXT NOT NULL,
@@ -78,7 +64,6 @@ CREATE TABLE IF NOT EXISTS active_alerts (
     metric_unit TEXT
 );
 
--- 6. Alert Events
 CREATE TABLE IF NOT EXISTS alert_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -95,7 +80,6 @@ CREATE TABLE IF NOT EXISTS alert_events (
     FOREIGN KEY (run_id) REFERENCES monitoring_runs(run_id)
 );
 
--- 7. Device Metrics History
 CREATE TABLE IF NOT EXISTS device_metrics_history (
     metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -108,26 +92,6 @@ CREATE TABLE IF NOT EXISTS device_metrics_history (
     FOREIGN KEY (run_id) REFERENCES monitoring_runs(run_id)
 );
 
--- Existing indexes
-CREATE INDEX IF NOT EXISTS idx_history_device
-ON device_state_history(device_id);
-
-CREATE INDEX IF NOT EXISTS idx_state_events_device
-ON state_events(device_id);
-
-CREATE INDEX IF NOT EXISTS idx_alert_events_device
-ON alert_events(device_id);
-
-CREATE INDEX IF NOT EXISTS idx_metrics_device
-ON device_metrics_history(device_id);
-
-CREATE INDEX IF NOT EXISTS idx_metrics_run
-ON device_metrics_history(run_id);
-
-CREATE INDEX IF NOT EXISTS idx_metrics_collected
-ON device_metrics_history(collected_at);
-
--- 8. Incidents: one record per alert episode.
 CREATE TABLE IF NOT EXISTS incidents (
     incident_id TEXT PRIMARY KEY,
     alert_key TEXT NOT NULL,
@@ -146,18 +110,6 @@ CREATE TABLE IF NOT EXISTS incidents (
     updated_at TEXT NOT NULL
 );
 
--- Only one unresolved Incident may exist for an alert key.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_incidents_open_alert_key
-ON incidents(alert_key)
-WHERE status = 'OPEN';
-
-CREATE INDEX IF NOT EXISTS idx_incidents_device_status
-ON incidents(device_id, status);
-
-CREATE INDEX IF NOT EXISTS idx_incidents_created_at
-ON incidents(created_at);
-
--- 9. Incident Events: immutable lifecycle history.
 CREATE TABLE IF NOT EXISTS incident_events (
     incident_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
     incident_id TEXT,
@@ -173,10 +125,6 @@ CREATE TABLE IF NOT EXISTS incident_events (
     FOREIGN KEY (source_alert_event_id) REFERENCES alert_events(event_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_incident_events_incident
-ON incident_events(incident_id, created_at);
-
--- 10. Transactional Outbox: reliable delivery to the Agent Service.
 CREATE TABLE IF NOT EXISTS agent_outbox (
     event_id TEXT PRIMARY KEY,
     incident_event_id INTEGER NOT NULL UNIQUE,
@@ -204,23 +152,50 @@ CREATE TABLE IF NOT EXISTS agent_outbox (
     FOREIGN KEY (incident_event_id)
         REFERENCES incident_events(incident_event_id)
 );
+"""
+
+
+# Index creation is intentionally separate. Existing databases may need
+# additive column migrations before an index references those columns.
+INDEX_SCHEMA = """
+CREATE INDEX IF NOT EXISTS idx_history_device
+ON device_state_history(device_id);
+
+CREATE INDEX IF NOT EXISTS idx_state_events_device
+ON state_events(device_id);
+
+CREATE INDEX IF NOT EXISTS idx_alert_events_device
+ON alert_events(device_id);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_device
+ON device_metrics_history(device_id);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_run
+ON device_metrics_history(run_id);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_collected
+ON device_metrics_history(collected_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_incidents_open_alert_key
+ON incidents(alert_key)
+WHERE status = 'OPEN';
+
+CREATE INDEX IF NOT EXISTS idx_incidents_device_status
+ON incidents(device_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_created_at
+ON incidents(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_incident_events_incident
+ON incident_events(incident_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_agent_outbox_pending
 ON agent_outbox(delivery_status, next_attempt_at, created_at);
 """
 
 
-# =====================================================
-# DATABASE MIGRATION
-# =====================================================
-
 def migrate_schema(connection):
-    """
-    Upgrade an existing database without deleting records.
-
-    Existing column migrations are additive. New tables and indexes are
-    created by SCHEMA using CREATE TABLE/INDEX IF NOT EXISTS.
-    """
+    """Apply additive migrations without deleting existing monitoring data."""
     migrations = {
         "agent_outbox": {
             "claim_token": "TEXT",
@@ -255,14 +230,9 @@ def migrate_schema(connection):
         for column, column_type in columns.items():
             if column not in existing_columns:
                 connection.execute(
-                    f"ALTER TABLE {table} "
-                    f"ADD COLUMN {column} {column_type}"
+                    f"ALTER TABLE {table} ADD COLUMN {column} {column_type}"
                 )
 
-
-# =====================================================
-# DATABASE CONNECTION
-# =====================================================
 
 @contextmanager
 def get_connection(db_path=DEFAULT_DB_PATH):
@@ -285,12 +255,9 @@ def get_connection(db_path=DEFAULT_DB_PATH):
         connection.close()
 
 
-# =====================================================
-# DATABASE INITIALIZATION
-# =====================================================
-
 def initialize_database(db_path=DEFAULT_DB_PATH):
-    """Initialize database and apply non-destructive schema migrations."""
+    """Initialize tables, apply additive migrations, then create indexes."""
     with get_connection(db_path) as connection:
         connection.executescript(SCHEMA)
         migrate_schema(connection)
+        connection.executescript(INDEX_SCHEMA)
