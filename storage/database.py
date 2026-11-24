@@ -274,7 +274,96 @@ def get_connection(db_path=DEFAULT_DB_PATH):
 def initialize_database(db_path=DEFAULT_DB_PATH):
     """
     Initialize database and apply schema migrations.
-    """
+    
+
+-- 8. Incidents: one record per alert episode.
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id TEXT PRIMARY KEY,
+    alert_key TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    check_name TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN ('OPEN', 'RESOLVED', 'CLOSED')
+    ),
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Only one unresolved Incident may exist for an alert key.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_incidents_open_alert_key
+ON incidents(alert_key)
+WHERE status = 'OPEN';
+
+CREATE INDEX IF NOT EXISTS idx_incidents_device_status
+ON incidents(device_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_created_at
+ON incidents(created_at);
+
+
+-- 9. Incident Events: immutable lifecycle history.
+CREATE TABLE IF NOT EXISTS incident_events (
+    incident_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    incident_id TEXT,
+    source_alert_event_id INTEGER NOT NULL UNIQUE,
+    alert_key TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    previous_severity TEXT,
+    current_severity TEXT,
+    message TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+
+    FOREIGN KEY (incident_id)
+        REFERENCES incidents(incident_id),
+    FOREIGN KEY (source_alert_event_id)
+        REFERENCES alert_events(event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_incident_events_incident
+ON incident_events(incident_id, created_at);
+
+
+-- 10. Transactional Outbox: reliable delivery to the Agent Service.
+CREATE TABLE IF NOT EXISTS agent_outbox (
+    event_id TEXT PRIMARY KEY,
+    incident_event_id INTEGER NOT NULL UNIQUE,
+    event_type TEXT NOT NULL,
+    aggregate_type TEXT NOT NULL DEFAULT 'INCIDENT',
+    aggregate_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    payload_json TEXT NOT NULL,
+    delivery_status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (
+            delivery_status IN (
+                'PENDING',
+                'IN_FLIGHT',
+                'DELIVERED',
+                'DEAD_LETTER'
+            )
+        ),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    locked_until TEXT,
+    created_at TEXT NOT NULL,
+    delivered_at TEXT,
+    last_error TEXT,
+
+    FOREIGN KEY (incident_event_id)
+        REFERENCES incident_events(incident_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_outbox_pending
+ON agent_outbox(delivery_status, next_attempt_at, created_at);
+
+
+"""
 
     with get_connection(db_path) as connection:
 
