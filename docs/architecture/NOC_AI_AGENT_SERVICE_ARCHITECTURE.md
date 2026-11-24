@@ -256,7 +256,7 @@ Suggested Backend tables:
 - device_id: affected device.
 - check_name: metric or check that caused the Incident.
 - severity: current Incident severity.
-- status: OPEN, INVESTIGATING, RESOLVED, CLOSED.
+- status: OPEN, RESOLVED, CLOSED. Investigation progress is tracked separately in `agent_jobs`.
 - title and summary.
 - first_seen_at and last_seen_at.
 - resolved_at.
@@ -328,7 +328,7 @@ Suggested MVP tables:
 
 Do not store infrastructure secrets or raw credentials in Agent State Store. Avoid persisting complete sensitive logs or unrestricted tool outputs. Store references and bounded, sanitized summaries where possible.
 
-Incident status and Agent Job status are separate concepts. An Agent job can be SUCCEEDED while the Incident remains OPEN because diagnosis does not mean remediation occurred.
+Incident status and Agent Job status are separate concepts. For the MVP, Incident status is OPEN, RESOLVED, or CLOSED; it does not become INVESTIGATING merely because an Agent job is running. An Agent job can be SUCCEEDED while the Incident remains OPEN because diagnosis does not mean remediation occurred.
 
 ## 7. Backend API contract
 
