@@ -110,6 +110,98 @@ def test_initialize_database_adds_incident_tables_without_removing_old_tables(tm
     }.issubset(tables)
 
 
+def test_legacy_database_migration_preserves_rows_and_adds_columns(tmp_path):
+    db_path = tmp_path / "legacy.db"
+
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE monitoring_runs (
+                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                checked_at TEXT NOT NULL
+            );
+
+            CREATE TABLE active_alerts (
+                alert_key TEXT PRIMARY KEY,
+                device_id TEXT NOT NULL,
+                check_name TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                message TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL
+            );
+
+            CREATE TABLE alert_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                alert_key TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                check_name TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE device_metrics_history (
+                metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                device_id TEXT NOT NULL
+            );
+
+            INSERT INTO active_alerts (
+                alert_key, device_id, check_name, severity,
+                message, first_seen, last_seen
+            )
+            VALUES (
+                'router-01::CPU_USAGE', 'router-01', 'CPU_USAGE',
+                'CRITICAL', 'CPU critical', '2026-11-24T01:00:00+00:00',
+                '2026-11-24T01:05:00+00:00'
+            );
+            """
+        )
+
+    initialize_database(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+
+        alert = connection.execute(
+            "SELECT * FROM active_alerts WHERE alert_key = ?",
+            ("router-01::CPU_USAGE",),
+        ).fetchone()
+
+        active_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(active_alerts)"
+            )
+        }
+        event_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(alert_events)"
+            )
+        }
+        metric_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(device_metrics_history)"
+            )
+        }
+
+    assert alert["message"] == "CPU critical"
+    assert {"observed_value", "threshold", "metric_unit"} <= active_columns
+    assert {"observed_value", "threshold", "metric_unit"} <= event_columns
+    assert {
+        "latency_ms",
+        "packet_loss_percent",
+        "cpu_usage_percent",
+        "memory_usage_percent",
+        "collected_at",
+    } <= metric_columns
+
+
 def test_raised_alert_creates_incident_and_outbox_event(tmp_path):
     db_path = tmp_path / "monitoring.db"
     initialize_database(db_path)
